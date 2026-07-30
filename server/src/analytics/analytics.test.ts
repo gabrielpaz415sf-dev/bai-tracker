@@ -6,6 +6,7 @@ import { estimateBeta } from './beta';
 import { computeConcentration } from './concentration';
 import { computeContributions, rollupContributions } from './attribution';
 import { horizonDispersion, lumpSumVsDca, concentrationScenarios } from './entryPrice';
+import { buildOutlook, conditionalStudy } from './forecast';
 import { parseHoldingsCsv, ProviderBlockedError } from '../providers/ishares';
 import { parseCsv, parseNumber } from '../util/csv';
 import { classifySubTheme } from '../domain/subthemes';
@@ -347,3 +348,69 @@ function prov() {
 }
 
 void ProviderBlockedError;
+
+
+/* ---------------------------------------------------------- outlook ---- */
+
+/** Deterministic pseudo-random walk — no Math.random in tests. */
+function walkCloses(n: number, dailyVol: number, drift = 0.0004): number[] {
+  const out: number[] = [];
+  let px = 100;
+  for (let i = 0; i < n; i++) {
+    // Deterministic noise in [-1, 1] from a simple hash of i.
+    const u = Math.sin(i * 12.9898 + 78.233) * 43758.5453;
+    const noise = (u - Math.floor(u)) * 2 - 1;
+    px *= Math.exp(drift + dailyVol * noise);
+    out.push(px);
+  }
+  return out;
+}
+
+test('outlook percentiles are ordered and ranges widen with horizon', () => {
+  const o = buildOutlook(bars(walkCloses(600, 0.03)), { simulations: 2000 })!;
+  assert.ok(o, 'model must run on 600 bars');
+  for (const h of o.horizons) {
+    assert.ok(h.p5 < h.p25 && h.p25 < h.p50 && h.p50 < h.p75 && h.p75 < h.p95,
+      `${h.label}: percentiles out of order`);
+    assert.ok(h.probUpPct >= 0 && h.probUpPct <= 100);
+  }
+  const spread = (i: number): number =>
+    (o.horizons[i]!.p95 - o.horizons[i]!.p5);
+  assert.ok(spread(4) > spread(0) * 2,
+    '1-year range must be far wider than 1-week — uncertainty accumulates');
+});
+
+test('outlook is deterministic for a fixed seed', () => {
+  const b = bars(walkCloses(600, 0.03));
+  const a1 = buildOutlook(b, { simulations: 1500, seed: 7 })!;
+  const a2 = buildOutlook(b, { simulations: 1500, seed: 7 })!;
+  assert.deepEqual(a1.horizons, a2.horizons,
+    'identical seeds must produce identical probabilities — no shifting numbers on refresh');
+});
+
+test('a real-scale single-day move fits inside the 1-week band', () => {
+  // Regression for the units bug: dailyReturns yields FRACTIONS, and a double
+  // /100 once compressed a ~50%-vol fund into a ±0.1% cone. At 3% daily vol a
+  // one-week p5 must be at least several percent down.
+  const o = buildOutlook(bars(walkCloses(600, 0.03)), { simulations: 2000 })!;
+  assert.ok(o.annualisedVolPct > 20,
+    `annualised vol ${o.annualisedVolPct.toFixed(1)}% — units collapsed again?`);
+  assert.ok(o.horizons[0]!.p5 < -3,
+    '1-week downside must accommodate an ordinary bad day');
+});
+
+test('conditional study suppresses buckets with too few matching days', () => {
+  // Fund: rises then crashes 40% — today sits deep below its high.
+  const fundCloses = walkCloses(400, 0.015);
+  const last = fundCloses[fundCloses.length - 1]!;
+  for (let i = 0; i < 30; i++) fundCloses.push(last * (1 - 0.4 * ((i + 1) / 30)));
+  // Proxy: steadily rising, never far below its high — zero matching days.
+  const proxy = bars(walkCloses(900, 0.002, 0.001));
+  const study = conditionalStudy(bars(fundCloses), proxy, 'TEST PROXY')!;
+  assert.ok(study, 'study must run');
+  for (const c of study.outcomes) {
+    assert.ok(c.matchCount < 30, 'crafted proxy must have almost no matching days');
+    assert.equal(c.upPct, null, 'thin buckets must report null, never a percentage');
+    assert.equal(c.medianPct, null);
+  }
+});

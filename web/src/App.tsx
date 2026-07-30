@@ -9,10 +9,11 @@ import {
 import { AttributionPanel, type AttributionData } from './components/Attribution';
 import { HoldingsTable } from './components/Holdings';
 import { LiveTodayPanel } from './components/LiveToday';
+import { OutlookPanel } from './components/Outlook';
 import { BriefPanel } from './components/Brief';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
-type Tab = 'dashboard' | 'brief' | 'attribution' | 'holdings';
+type Tab = 'dashboard' | 'brief' | 'attribution' | 'holdings' | 'outlook';
 
 interface SeriesResponse {
   timeframe: { label: string; startDate: string; endDate: string; tradingDays: number; clippedToInception: boolean };
@@ -107,6 +108,7 @@ export default function App() {
           ['brief', "Today's summary"],
           ['attribution', 'What drove performance'],
           ['holdings', 'Holdings'],
+          ['outlook', 'What could happen next?'],
         ] as Array<[Tab, string]>).map(([k, label]) => (
           <button key={k} className={`tab ${tab === k ? 'active' : ''}`} onClick={() => setTab(k)}>
             {label}
@@ -187,6 +189,10 @@ export default function App() {
           </div>
           <ErrorBoundary label="Attribution"><AttributionPanel data={attribution} /></ErrorBoundary>
         </>
+      )}
+
+      {tab === 'outlook' && (
+        <section><ErrorBoundary label="Outlook"><OutlookPanel /></ErrorBoundary></section>
       )}
 
       {tab === 'holdings' && (
