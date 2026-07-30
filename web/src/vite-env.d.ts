@@ -6,6 +6,8 @@
  */
 interface ImportMetaEnv {
   readonly VITE_STATIC?: string;
+  /** Set from --base at build time; '/bai-tracker/' on GitHub Pages. */
+  readonly BASE_URL: string;
 }
 
 interface ImportMeta {

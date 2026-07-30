@@ -40,11 +40,21 @@ const STATIC_MODE = import.meta.env.VITE_STATIC === '1';
  */
 function resolveUrl(path: string): string {
   if (!STATIC_MODE) return `${BASE}${path}`;
+  /*
+   * Must be relative to the deployed base, not the domain root.
+   *
+   * GitHub Pages serves this from /<repo>/, so an absolute `/api/x.json`
+   * resolves to https://user.github.io/api/x.json — the wrong origin path, and
+   * every panel 404s while the page itself loads fine. import.meta.env.BASE_URL
+   * is whatever --base was set to at build time, so this follows the deployment
+   * wherever it lands (repo subpath, custom domain, or local root).
+   */
+  const root = `${import.meta.env.BASE_URL ?? '/'}`.replace(/\/?$/, '/');
   const [p = '', q] = path.split('?');
   const name = p.replace(/^\//, '');
-  if (!q) return `${BASE}/${name}.json`;
+  if (!q) return `${root}api/${name}.json`;
   const values = [...new URLSearchParams(q).values()];
-  return `${BASE}/${[name, ...values].join('-')}.json`;
+  return `${root}api/${[name, ...values].join('-')}.json`;
 }
 
 export async function get<T>(path: string): Promise<T> {
