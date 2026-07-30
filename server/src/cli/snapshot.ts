@@ -17,24 +17,15 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from '../config';
-import {
-  getOverview,
-  getAttribution,
-  getHoldingsTable,
-  getFundSeries,
-} from '../services/fundService';
+import { getOverview, getHoldingsTable, getFundSeries } from '../services/fundService';
 import { getLiveToday } from '../services/liveService';
-import { buildDailyBrief, briefToMarkdown } from '../services/briefService';
-import { getOutlook } from '../services/outlookService';
 import { providerStatus } from '../providers/market';
 import { ISHARES_HOLDINGS_URL } from '../providers/ishares';
 import { budgetStatus } from '../providers/market/rateLimit';
-import type { TimeframeKey } from '../types';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.resolve(here, '../../../web/public/api');
 
-const TIMEFRAMES: TimeframeKey[] = ['1D', '1W', '1M', '3M', 'YTD', '1Y', 'SI'];
 
 /**
  * Fold the committed seed series into the runtime cache before fetching.
@@ -137,26 +128,17 @@ async function main(): Promise<void> {
    */
   await write('live', { live: await getLiveToday() });
   await write('overview', await getOverview());
-  await write('outlook', { outlook: await getOutlook() });
   await write('holdings', await getHoldingsTable());
-  const brief = await buildDailyBrief('1D');
-  // The client requests /brief?timeframe=1D, which the static resolver maps to
-  // brief-1D.json — the bare name alone left the summary tab 404ing on Pages.
-  await write('brief', { brief, markdown: briefToMarkdown(brief) });
-  await write('brief-1D', { brief, markdown: briefToMarkdown(brief) });
 
-  // The timeframe picker drives these, so every option needs a file.
-  // Envelopes MUST match the Express routes byte-for-byte in shape: the first
-  // deploy wrote attribution as the raw Sourced wrapper while the live route
-  // unwraps it, and the entire breakdown tab broke only on the published site.
-  for (const tf of TIMEFRAMES) {
-    await write(`series-${tf}`, await getFundSeries(tf));
-    const r = await getAttribution(tf);
-    await write(
-      `attribution-${tf}`,
-      r.ok ? { attribution: r.value, provenance: r.provenance } : { attribution: r },
-    );
-  }
+
+  /*
+   * ONLY the files the one-page site fetches: live, overview, holdings, and the
+   * 3-month series. The old snapshot pre-rendered seven timeframes of series
+   * and attribution — ~50 provider requests per build against a 45/hour cap,
+   * which is what kept CI colliding with the local machine and shipping
+   * degraded data. The page shrank; its build cost shrinks with it (~8 calls).
+   */
+  await write('series-3M', await getFundSeries('3M'));
 
   // Written last on purpose: the budget numbers then record what this run
   // actually spent, which is the first thing to look at when a deploy degrades.

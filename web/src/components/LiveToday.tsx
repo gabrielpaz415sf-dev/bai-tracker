@@ -208,28 +208,14 @@ export function LiveTodayPanel() {
         </span>
       }
     >
-      <div className="stat-grid">
-        {data.fund && (
-          <>
-            <Stat label="BAI now" value={fmt.num(data.fund.last)} />
-            <Stat label="BAI's own price move" value={fmt.pct(data.fund.changePct)} cls={signClass(data.fund.changePct)}
-              hint="What BAI itself traded at today. This is the real answer for how the fund did." />
-          </>
-        )}
-        <Stat
-          label="Its stocks add up to"
-          value={data.impliedFromHoldingsPct === null ? '—' : fmt.pct(data.impliedFromHoldingsPct)}
-          cls={signClass(data.impliedFromHoldingsPct)}
-          hint="Take each US stock the fund owns, multiply its move today by how big a slice it is, and add them all up. This explains WHY BAI moved. It will not match BAI's own price exactly, because a quarter of the fund is in Asian markets that are closed and cannot show up in this number."
-        />
-        <Stat
-          label="How much of the fund this covers"
-          value={`${data.coveragePct.toFixed(1)}%`}
-          hint="Share of the fund that has a live price right now. The rest is either in Asian markets that are shut, or private companies (Anthropic, OpenAI) that have no market price at all."
-        />
-        <Stat label="In markets that are closed" value={`${closedWeight.toFixed(1)}%`}
-          hint={data.closedMarkets.map((h) => `${h.ticker} ${h.weight.toFixed(1)}%`).join(', ')} />
-      </div>
+      {data.fund && (
+        <div className="quote-row" style={{ marginBottom: 6 }}>
+          <span className="quote-price">{fmt.num(data.fund.last)}</span>
+          <span className={`quote-change ${signClass(data.fund.changePct)}`}>
+            {fmt.pct(data.fund.changePct)} today
+          </span>
+        </div>
+      )}
 
       <div className="grid cols-2" style={{ marginTop: 12 }}>
         <div>
@@ -295,29 +281,6 @@ export function LiveTodayPanel() {
           </div>
         </div>
       )}
-
-      <div className={`why-source ${data.newsSource.available ? '' : 'off'}`}>
-        <span className="chip delayed">WHY</span>
-        <span>
-          {data.newsSource.available
-            ? `Headlines via ${data.newsSource.label}. ${data.newsSource.note}`
-            : `No explanations available — ${data.newsSource.note}`}
-        </span>
-      </div>
-
-      {data.bySubTheme.length > 0 && (
-        <div style={{ marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          {data.bySubTheme.map((t) => (
-            <span key={t.label} className="chip delayed" style={{ fontSize: 10.5 }}>
-              {t.label}: <span className={signClass(t.contributionPct)}>{fmt.pp(t.contributionPct)}</span>
-            </span>
-          ))}
-        </div>
-      )}
-
-      {data.notes.map((n, i) => (
-        <div key={i} className="note-box" style={{ marginTop: 8 }}>{n}</div>
-      ))}
     </Panel>
   );
 }
