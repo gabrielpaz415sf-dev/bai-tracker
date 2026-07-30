@@ -4,7 +4,6 @@ import { Panel } from './components/Common';
 import { Chart, type ChartSeries, type SeriesPoint } from './components/Chart';
 import { HoldingsTable } from './components/Holdings';
 import { LiveTodayPanel } from './components/LiveToday';
-import { ManagerChanges, type HoldingsDiff } from './components/ManagerChanges';
 import { DailySummaryCard } from './components/Summary';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
@@ -16,10 +15,12 @@ import { ErrorBoundary } from './components/ErrorBoundary';
  * computed similar things from different sources over different windows. The
  * cure is structural: one page, one source per fact, one visible timestamp.
  *
- *   1. What BAI is doing today, and which stocks are doing it (with news)
- *   2. What the managers changed
- *   3. How it has performed (returns + a 3-month chart vs benchmarks)
- *   4. What it holds
+ *   1. What BAI is doing today: the AI-written overview, then the numbers
+ *   2. How it has performed (returns + a 3-month chart vs benchmarks)
+ *   3. What it holds
+ *
+ * Manager activity was cut from the page by request (2026-07-30); the per-row
+ * Δ-weight chips in the holdings table still carry the information.
  *
  * Everything else this codebase can compute still exists server-side; it just
  * is not this page's job.
@@ -36,20 +37,14 @@ interface OverviewData {
   __synthetic: boolean;
 }
 
-interface HoldingsResponse {
-  diff?: HoldingsDiff | null;
-}
-
 export default function App() {
   const [overview, setOverview] = useState<OverviewData | null>(null);
   const [series, setSeries] = useState<SeriesResponse | null>(null);
-  const [holdingsMeta, setHoldingsMeta] = useState<HoldingsResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     get<OverviewData>('/overview').then(setOverview).catch((e: Error) => setErr(e.message));
     get<SeriesResponse>('/series?timeframe=3M').then(setSeries).catch(() => setSeries(null));
-    get<HoldingsResponse>('/holdings').then(setHoldingsMeta).catch(() => setHoldingsMeta(null));
   }, []);
 
   return (
@@ -77,15 +72,7 @@ export default function App() {
         <ErrorBoundary label="Live today"><LiveTodayPanel /></ErrorBoundary>
       </section>
 
-      {/* 2 ─ manager changes */}
-      <section>
-        <h2>Manager activity</h2>
-        <ErrorBoundary label="Manager changes">
-          <ManagerChanges diff={holdingsMeta?.diff} />
-        </ErrorBoundary>
-      </section>
-
-      {/* 3 ─ performance */}
+      {/* 2 ─ performance */}
       <section>
         <h2>Performance</h2>
         <div className="grid attribution">
@@ -129,7 +116,7 @@ export default function App() {
         </div>
       </section>
 
-      {/* 4 ─ holdings */}
+      {/* 3 ─ holdings */}
       <section>
         <h2>Every stock it owns</h2>
         <ErrorBoundary label="Holdings"><HoldingsTable /></ErrorBoundary>
