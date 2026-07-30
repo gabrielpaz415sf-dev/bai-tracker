@@ -78,14 +78,24 @@ jobs:
           e=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 \
               "https://eodhd.com/api/eod/BAI.US?fmt=json&api_token=$EODHD_API_KEY&from=2026-07-01")
           echo "tiingo=$t eodhd=$e (key lengths: ${#TIINGO_API_KEY}/${#EODHD_API_KEY})"
-          if [ "$t" != "200" ]; then
-            echo "::error::Tiingo rejected this runner (HTTP $t). Bars would silently fall back to EODHD's 1-year-capped history. Check the TIINGO_API_KEY secret for typos/whitespace."
-            exit 1
-          fi
-          if [ "$e" != "200" ]; then
-            echo "::error::EODHD rejected this runner (HTTP $e). Foreign holdings would drop out. Check the EODHD_API_KEY secret."
-            exit 1
-          fi
+          # Hard-fail only on auth failures (bad/typo'd secret) — a wrong key
+          # never heals by waiting. Rate limits (429) and quota (402) are
+          # temporary: the committed seed plus the persisted cache let the build
+          # ship stale-but-labeled data, which beats shipping nothing.
+          case "$t" in
+            401|403)
+              echo "::error::Tiingo rejected the key itself (HTTP $t). Fix the TIINGO_API_KEY secret."
+              exit 1;;
+            200) ;;
+            *) echo "::warning::Tiingo throttled or unreachable (HTTP $t/$td). Building from cache + seed; data will be labeled stale.";;
+          esac
+          case "$e" in
+            401|403)
+              echo "::error::EODHD rejected the key itself (HTTP $e). Fix the EODHD_API_KEY secret."
+              exit 1;;
+            200) ;;
+            *) echo "::warning::EODHD throttled or unreachable (HTTP $e). Foreign holdings will serve from cache.";;
+          esac
 
       # Persist the fetch cache between runs. A cold runner needs ~55 bar
       # requests against a 45/hour budget — it cannot finish clean. Warm, each
