@@ -199,9 +199,12 @@ export function LiveTodayPanel() {
       }
       right={
         <span className="dimmer" style={{ fontWeight: 400, textTransform: 'none' }}>
-          delayed ~15 min · refreshes every{' '}
-          {data.session.phase === 'regular' ? '5 min' : '15 min while closed'} · as of{' '}
-          {fmt.time(data.asOf)}
+          {import.meta.env.VITE_STATIC === '1'
+            ? 'from the last scheduled site update · '
+            : `delayed ~15 min · refreshes every ${
+                data.session.phase === 'regular' ? '5 min' : '15 min while closed'
+              } · `}
+          as of {fmt.time(data.asOf)}
         </span>
       }
     >

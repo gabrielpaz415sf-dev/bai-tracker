@@ -24,7 +24,7 @@ import {
   getFundSeries,
 } from '../services/fundService';
 import { getLiveToday } from '../services/liveService';
-import { buildDailyBrief } from '../services/briefService';
+import { buildDailyBrief, briefToMarkdown } from '../services/briefService';
 import { getOutlook } from '../services/outlookService';
 import { providerStatus } from '../providers/market';
 import { ISHARES_HOLDINGS_URL } from '../providers/ishares';
@@ -63,13 +63,6 @@ async function main(): Promise<void> {
   await fs.mkdir(OUT, { recursive: true });
   console.log(`[snapshot] writing to ${OUT}`);
 
-  await write('health', {
-    ok: true,
-    providers: providerStatus(),
-    fixturesEnabled: config.fixtures.enabled,
-    requestBudget: budgetStatus(),
-  });
-
   // The Transparency panel fetches this for the real refresh cadence; without it
   // the panel silently reads "Refresh cadence unavailable" on the static build.
   await write('sources', {
@@ -86,17 +79,42 @@ async function main(): Promise<void> {
     },
   });
 
-  await write('overview', await getOverview());
-  await write('holdings', await getHoldingsTable());
+  /*
+   * Order is budget priority, not logical grouping. A cold runner starts with
+   * an empty cache, and the ~50 per-holding bar fetches inside the holdings
+   * table can exhaust an hourly provider budget by themselves — on the first
+   * deploy they starved the live-quote batch, and the published dashboard
+   * carried a baked-in "live view unavailable". Quotes and the fund's own
+   * series are the cheapest and most visible data; they go first.
+   */
   await write('live', { live: await getLiveToday() });
-  await write('brief', { brief: await buildDailyBrief('1D') });
+  await write('overview', await getOverview());
   await write('outlook', { outlook: await getOutlook() });
+  await write('holdings', await getHoldingsTable());
+  const brief = await buildDailyBrief('1D');
+  await write('brief', { brief, markdown: briefToMarkdown(brief) });
 
   // The timeframe picker drives these, so every option needs a file.
+  // Envelopes MUST match the Express routes byte-for-byte in shape: the first
+  // deploy wrote attribution as the raw Sourced wrapper while the live route
+  // unwraps it, and the entire breakdown tab broke only on the published site.
   for (const tf of TIMEFRAMES) {
     await write(`series-${tf}`, await getFundSeries(tf));
-    await write(`attribution-${tf}`, { attribution: await getAttribution(tf) });
+    const r = await getAttribution(tf);
+    await write(
+      `attribution-${tf}`,
+      r.ok ? { attribution: r.value, provenance: r.provenance } : { attribution: r },
+    );
   }
+
+  // Written last on purpose: the budget numbers then record what this run
+  // actually spent, which is the first thing to look at when a deploy degrades.
+  await write('health', {
+    ok: true,
+    providers: providerStatus(),
+    fixturesEnabled: config.fixtures.enabled,
+    requestBudget: budgetStatus(),
+  });
 
   console.log('[snapshot] done');
 }

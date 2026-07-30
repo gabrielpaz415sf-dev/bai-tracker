@@ -51,6 +51,42 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
+      # Prove each provider key actually works FROM THIS RUNNER before building.
+      # The first deploy shipped with every Tiingo request failing silently:
+      # everything fell back to EODHD, whose free tier caps history at one year,
+      # and the published site carried degraded data with no visible cause.
+      # Status codes only — key material never reaches the log.
+      - name: Check data providers
+        env:
+          TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
+          EODHD_API_KEY: ${{ secrets.EODHD_API_KEY }}
+        run: |
+          t=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 \
+              -H "Authorization: Token $TIINGO_API_KEY" \
+              "https://api.tiingo.com/api/test")
+          e=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 \
+              "https://eodhd.com/api/eod/BAI.US?fmt=json&api_token=$EODHD_API_KEY&from=2026-07-01")
+          echo "tiingo=$t eodhd=$e (key lengths: ${#TIINGO_API_KEY}/${#EODHD_API_KEY})"
+          if [ "$t" != "200" ]; then
+            echo "::error::Tiingo rejected this runner (HTTP $t). Bars would silently fall back to EODHD's 1-year-capped history. Check the TIINGO_API_KEY secret for typos/whitespace."
+            exit 1
+          fi
+          if [ "$e" != "200" ]; then
+            echo "::error::EODHD rejected this runner (HTTP $e). Foreign holdings would drop out. Check the EODHD_API_KEY secret."
+            exit 1
+          fi
+
+      # Persist the fetch cache between runs. A cold runner needs ~55 bar
+      # requests against a 45/hour budget — it cannot finish clean. Warm, each
+      # run only refreshes series a newly closed session made stale.
+      - name: Restore data cache
+        uses: actions/cache@v4
+        with:
+          path: server/data
+          key: market-cache-${{ github.run_id }}
+          restore-keys: |
+            market-cache-
+
       # Pre-render every endpoint. The snapshot CLI refuses to run without a
       # market-data key, so a missing secret fails here instead of quietly
       # publishing synthetic demo numbers to a public URL.

@@ -144,8 +144,7 @@ export function ReturnsTable({ data }: { data: OverviewData }) {
           <thead>
             <tr>
               <th className="left">Period</th>
-              <th>Based on share price</th>
-              <th>Based on holdings value</th>
+              <th>Return</th>
             </tr>
           </thead>
           <tbody>
@@ -155,17 +154,10 @@ export function ReturnsTable({ data }: { data: OverviewData }) {
                 <td className={r.marketReturnPct.ok ? signClass(r.marketReturnPct.value) : 'dimmer'}>
                   {r.marketReturnPct.ok ? fmt.pct(r.marketReturnPct.value) : '—'}
                 </td>
-                <td className="dimmer" title={r.navReturnPct.ok ? '' : (r.navReturnPct as { detail: string }).detail}>
-                  {r.navReturnPct.ok ? fmt.pct(r.navReturnPct.value) : 'n/a'}
-                </td>
               </tr>
             ))}
           </tbody>
         </table>
-        <div className="prov">
-          The second column needs a day-by-day history of what the holdings were worth, which BlackRock does not publish and no free feed carries. We show
-          n/a rather than silently reusing the market price, which would misstate them.
-        </div>
       </Panel>
 
       <Panel title="Benchmark comparison (YTD)">
