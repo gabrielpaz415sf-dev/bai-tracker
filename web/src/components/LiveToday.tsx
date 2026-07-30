@@ -1,0 +1,320 @@
+import { useEffect, useState } from 'react';
+import { fmt, get, signClass } from '../api';
+import { Panel, Stat } from './Common';
+
+interface MoverNews {
+  headline: string; url: string; source: string; publishedAt: string;
+}
+
+interface LiveMover {
+  ticker: string; name: string; weight: number;
+  changePct: number; contributionPct: number; subTheme: string;
+  news: MoverNews[];
+}
+
+interface LiveData {
+  asOf: string;
+  marketOpen: boolean;
+  session: { phase: string; label: string; etTime: string };
+  fund: { last: number; changePct: number; dayLow: number; dayHigh: number; volume: number } | null;
+  fundNote: string | null;
+  impliedFromHoldingsPct: number | null;
+  coveragePct: number;
+  movers: { up: LiveMover[]; down: LiveMover[] };
+  bySubTheme: Array<{ label: string; contributionPct: number; weight: number }>;
+  closedMarkets: Array<{
+    ticker: string; name: string; weight: number;
+    changePct: number | null; contributionPct: number | null; asOf: string | null;
+  }>;
+  unpriced: Array<{ ticker: string; weight: number }>;
+  newsSource: { label: string; available: boolean; note: string };
+  notes: string[];
+  available: boolean;
+  reason: string | null;
+}
+
+/*
+ * Poll cadence, driven by the market session rather than fixed.
+ *
+ * 2 min matches the server's quote cache TTL while the session is live (~30
+ * upstream requests/hour, inside the free-tier budget). Outside the session a
+ * quote cannot change, so the old fixed 120s spent roughly two thirds of the
+ * daily allowance overnight and at weekends re-fetching an identical close.
+ */
+/*
+ * 5 minutes, not 2.
+ *
+ * The quotes are already ~15 minutes delayed, so polling every 2 minutes
+ * re-fetched an identical value up to 7 times before it could possibly change —
+ * pure spend against a 45/hour cap. 5 minutes still oversamples a 15-minute
+ * feed while cutting the live panel from ~30 requests/hour to ~12.
+ */
+const REFRESH_OPEN_MS = 300_000;
+const REFRESH_CLOSED_MS = 900_000;
+
+/** "2h ago" reads faster than a timestamp when judging if a story precedes a move. */
+function ago(iso: string): string {
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (!Number.isFinite(mins) || mins < 0) return '';
+  if (mins < 60) return `${mins}m ago`;
+  if (mins < 48 * 60) return `${Math.round(mins / 60)}h ago`;
+  return `${Math.round(mins / 1440)}d ago`;
+}
+
+/**
+ * Column labels. Without these the last two numbers on each row are just two
+ * unexplained percentages sitting next to each other.
+ */
+function MoverHead() {
+  return (
+    <div className="contrib-head">
+      <span>Stock</span>
+      <span>How much it moved</span>
+      <span title="How much of BAI this holding is">% of fund</span>
+    </div>
+  );
+}
+
+function MoverRow({ m, scale, newsOn }: { m: LiveMover; scale: number; newsOn: boolean }) {
+  // Bar length tracks the stock's own price move — the number printed beside it.
+  // It used to track the contribution-to-fund figure, which meant the bar was
+  // sized by a quantity no longer shown anywhere.
+  const pct = (Math.abs(m.changePct) / scale) * 50;
+  const positive = m.changePct >= 0;
+  return (
+    <div className="mover">
+      <div className="contrib-row" title={`${m.name} · ${m.subTheme} · ${m.weight.toFixed(2)}% weight`}>
+        <div className="contrib-name"><strong>{m.ticker}</strong></div>
+        <div className="contrib-track">
+          <div className="zero" />
+          <div
+            className="contrib-fill"
+            style={{
+              background: positive ? 'var(--up)' : 'var(--down)',
+              left: positive ? '50%' : `${50 - pct}%`,
+              width: `${Math.max(0.4, pct)}%`,
+            }}
+          />
+        </div>
+        <div className={`contrib-val ${signClass(m.changePct)}`}>{fmt.pct(m.changePct)}</div>
+        <div className="contrib-weight">{m.weight.toFixed(2)}%</div>
+      </div>
+
+      {/*
+        Coincident articles, cited with source and timestamp so the reader
+        judges the link themselves. No causal wording is generated anywhere:
+        an empty list renders "no story found", never a guess.
+      */}
+      {m.news.length > 0 ? (
+        <ul className="mover-news">
+          {m.news.map((n) => (
+            <li key={n.url}>
+              <a href={n.url} target="_blank" rel="noopener noreferrer">{n.headline}</a>
+              <span className="src">{n.source} · {ago(n.publishedAt)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        // Only meaningful when a provider actually looked and found nothing.
+        // With no provider configured this would be a per-row echo of the
+        // banner below, so it is suppressed rather than repeated 12 times.
+        newsOn && <div className="mover-news none">no story found in this window</div>
+      )}
+    </div>
+  );
+}
+
+export function LiveTodayPanel() {
+  const [data, setData] = useState<LiveData | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+
+  // The next poll is scheduled from the response just received, not from
+  // component state: `data` is still null on the first pass and stale on every
+  // later one, so reading it here would pick the wrong interval every time —
+  // notably the slow one during a live session.
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const again = (phase: string | undefined): void => {
+      const wait = phase === 'regular' ? REFRESH_OPEN_MS : REFRESH_CLOSED_MS;
+      timer = setTimeout(() => setTick((x) => x + 1), wait);
+    };
+
+    get<{ live: LiveData }>('/live')
+      .then((d) => {
+        if (cancelled) return;
+        setData(d.live);
+        setErr(null);
+        again(d.live.session?.phase);
+      })
+      .catch((e: Error) => {
+        if (cancelled) return;
+        setErr(e.message);
+        // Back off on failure rather than hammering a provider that is down.
+        again(undefined);
+      });
+
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [tick]);
+
+  if (err || !data) {
+    return (
+      <Panel title="Live today">
+        <div className="spinner">{err ?? 'Loading live view…'}</div>
+      </Panel>
+    );
+  }
+
+  if (!data.available) {
+    return (
+      <Panel title="Live today">
+        <div className="missing">
+          <div className="reason-tag">Live view unavailable</div>
+          <div className="why">{data.reason}</div>
+        </div>
+      </Panel>
+    );
+  }
+
+  const all = [...data.movers.up, ...data.movers.down];
+  const scale = Math.max(...all.map((m) => Math.abs(m.changePct)), 0.5);
+  const closedWeight = data.closedMarkets.reduce((a, h) => a + h.weight, 0);
+  const closedWithMoves = data.closedMarkets
+    .filter((h) => h.changePct !== null)
+    .sort((a, b) => (a.contributionPct ?? 0) - (b.contributionPct ?? 0));
+  const closedScale = Math.max(
+    ...closedWithMoves.map((h) => Math.abs(h.changePct ?? 0)),
+    0.5,
+  );
+
+  return (
+    <Panel
+      title={
+        <>
+          <span className={`live-dot ${data.marketOpen ? '' : 'closed'}`} />
+          {data.marketOpen ? `Live now — ${data.session.etTime}` : data.session.label}
+        </>
+      }
+      right={
+        <span className="dimmer" style={{ fontWeight: 400, textTransform: 'none' }}>
+          delayed ~15 min · refreshes every{' '}
+          {data.session.phase === 'regular' ? '5 min' : '15 min while closed'} · as of{' '}
+          {fmt.time(data.asOf)}
+        </span>
+      }
+    >
+      <div className="stat-grid">
+        {data.fund && (
+          <>
+            <Stat label="BAI now" value={fmt.num(data.fund.last)} />
+            <Stat label="BAI's own price move" value={fmt.pct(data.fund.changePct)} cls={signClass(data.fund.changePct)}
+              hint="What BAI itself traded at today. This is the real answer for how the fund did." />
+          </>
+        )}
+        <Stat
+          label="Its stocks add up to"
+          value={data.impliedFromHoldingsPct === null ? '—' : fmt.pct(data.impliedFromHoldingsPct)}
+          cls={signClass(data.impliedFromHoldingsPct)}
+          hint="Take each US stock the fund owns, multiply its move today by how big a slice it is, and add them all up. This explains WHY BAI moved. It will not match BAI's own price exactly, because a quarter of the fund is in Asian markets that are closed and cannot show up in this number."
+        />
+        <Stat
+          label="How much of the fund this covers"
+          value={`${data.coveragePct.toFixed(1)}%`}
+          hint="Share of the fund that has a live price right now. The rest is either in Asian markets that are shut, or private companies (Anthropic, OpenAI) that have no market price at all."
+        />
+        <Stat label="In markets that are closed" value={`${closedWeight.toFixed(1)}%`}
+          hint={data.closedMarkets.map((h) => `${h.ticker} ${h.weight.toFixed(1)}%`).join(', ')} />
+      </div>
+
+      <div className="grid cols-2" style={{ marginTop: 12 }}>
+        <div>
+          <h3 style={{ margin: '0 0 6px', fontSize: 11, color: 'var(--dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Helping today
+          </h3>
+          <MoverHead />
+          {data.movers.up.length === 0 ? (
+            <div className="dimmer" style={{ fontSize: 12 }}>nothing is up right now</div>
+          ) : (
+            data.movers.up.map((m) => <MoverRow key={m.ticker} m={m} scale={scale} newsOn={data.newsSource.available} />)
+          )}
+        </div>
+        <div>
+          <h3 style={{ margin: '0 0 6px', fontSize: 11, color: 'var(--dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Hurting today
+          </h3>
+          <MoverHead />
+          {data.movers.down.length === 0 ? (
+            <div className="dimmer" style={{ fontSize: 12 }}>nothing is down right now</div>
+          ) : (
+            data.movers.down.map((m) => <MoverRow key={m.ticker} m={m} scale={scale} newsOn={data.newsSource.available} />)
+          )}
+        </div>
+      </div>
+
+      {/*
+        The already-closed names get their own dated block. Leaving them out of
+        the US mover lists is right — they are not trading now — but leaving
+        their moves off the page entirely hid the fund's biggest position falling
+        9.6%, which reads as the dashboard being broken.
+      */}
+      {closedWithMoves.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <h3 style={{ margin: '0 0 6px', fontSize: 11, color: 'var(--dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Asia — already finished trading{' '}
+            <span className="dimmer" style={{ textTransform: 'none', fontWeight: 400, letterSpacing: 0 }}>
+              (their {closedWithMoves[0]?.asOf} session, hours before the US close)
+            </span>
+          </h3>
+          <MoverHead />
+          {closedWithMoves.map((h) => (
+            <div className="contrib-row" key={h.ticker} title={`${h.name} · ${h.weight.toFixed(2)}% of the fund`}>
+              <div className="contrib-name"><strong>{h.ticker}</strong></div>
+              <div className="contrib-track">
+                <div className="zero" />
+                <div
+                  className="contrib-fill"
+                  style={{
+                    background: (h.changePct ?? 0) >= 0 ? 'var(--up)' : 'var(--down)',
+                    left: (h.changePct ?? 0) >= 0 ? '50%' : `${50 - (Math.abs(h.changePct ?? 0) / closedScale) * 50}%`,
+                    width: `${Math.max(0.4, (Math.abs(h.changePct ?? 0) / closedScale) * 50)}%`,
+                  }}
+                />
+              </div>
+              <div className={`contrib-val ${signClass(h.changePct)}`}>{fmt.pct(h.changePct)}</div>
+              <div className="contrib-weight">{h.weight.toFixed(2)}%</div>
+            </div>
+          ))}
+          <div className="dimmer" style={{ fontSize: 10.5, marginTop: 5 }}>
+            These are already baked into BAI's own price above, but they cannot show up in the
+            US-hours numbers — their day was over before the US opened.
+          </div>
+        </div>
+      )}
+
+      <div className={`why-source ${data.newsSource.available ? '' : 'off'}`}>
+        <span className="chip delayed">WHY</span>
+        <span>
+          {data.newsSource.available
+            ? `Headlines via ${data.newsSource.label}. ${data.newsSource.note}`
+            : `No explanations available — ${data.newsSource.note}`}
+        </span>
+      </div>
+
+      {data.bySubTheme.length > 0 && (
+        <div style={{ marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {data.bySubTheme.map((t) => (
+            <span key={t.label} className="chip delayed" style={{ fontSize: 10.5 }}>
+              {t.label}: <span className={signClass(t.contributionPct)}>{fmt.pp(t.contributionPct)}</span>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {data.notes.map((n, i) => (
+        <div key={i} className="note-box" style={{ marginTop: 8 }}>{n}</div>
+      ))}
+    </Panel>
+  );
+}

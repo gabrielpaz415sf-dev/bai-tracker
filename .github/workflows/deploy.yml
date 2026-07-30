@@ -1,0 +1,82 @@
+# Publish the dashboard to GitHub Pages.
+#
+# Every API endpoint in this app is read-only JSON, so the server only needs to
+# run at build time: `npm run snapshot` pre-renders each response to a file and
+# the deployed page fetches those instead of an origin. Two consequences worth
+# knowing:
+#
+#  * Provider API calls happen once per build, not once per visitor — so traffic
+#    costs nothing against the free market-data tiers.
+#  * The page is exactly as fresh as the last build. The schedule below is what
+#    keeps it current; the published page cannot fetch anything newer itself.
+name: Deploy
+
+on:
+  # Any change I push rebuilds and redeploys.
+  push:
+    branches: [main]
+  # Keeps the data current without a push. Times are UTC; 21:15 UTC is ~35 min
+  # after the 16:00 ET close, late enough for the closing bar to be published.
+  schedule:
+    - cron: '15 21 * * 1-5'
+    - cron: '30 14 * * 1-5' # ~10:30 ET, mid-session refresh
+  # Lets you trigger a rebuild by hand from the Actions tab.
+  workflow_dispatch:
+
+# Pages deployment needs these; nothing here needs write access to the repo.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# A scheduled run and a push run must not race each other onto Pages.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      # Fail the build rather than publish a broken page.
+      - run: npm run typecheck
+      - run: npm test
+
+      # Pre-render every endpoint. The snapshot CLI refuses to run without a
+      # market-data key, so a missing secret fails here instead of quietly
+      # publishing synthetic demo numbers to a public URL.
+      - name: Fetch data and pre-render API
+        env:
+          TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
+          EODHD_API_KEY: ${{ secrets.EODHD_API_KEY }}
+          MARKETAUX_API_KEY: ${{ secrets.MARKETAUX_API_KEY }}
+        run: npm run snapshot
+
+      # --base=./ makes the bundle work from a repo subpath
+      # (user.github.io/bai-tracker/) as well as from a custom domain.
+      - name: Build static site
+        run: npm -w web run build:static
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
