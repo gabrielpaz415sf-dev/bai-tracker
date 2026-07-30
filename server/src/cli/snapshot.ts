@@ -36,6 +36,53 @@ const OUT = path.resolve(here, '../../../web/public/api');
 
 const TIMEFRAMES: TimeframeKey[] = ['1D', '1W', '1M', '3M', 'YTD', '1Y', 'SI'];
 
+/**
+ * Fold the committed seed series into the runtime cache before fetching.
+ *
+ * The seed (server/data-seed/cache) carries the long price histories a CI
+ * runner cannot obtain on its own: when Tiingo rate-limits, the fallback
+ * provider's free tier returns only one year, and one bad run once cut BAI's
+ * cached series from 442 bars to 251 — the outlook model refused to run and
+ * long-window numbers quietly measured the wrong span. Union by date, with the
+ * existing cache winning on overlaps: the seed is a floor of history, never a
+ * source of fresher prices.
+ */
+async function mergeSeedIntoCache(): Promise<void> {
+  const seedDir = path.resolve(here, '../../data-seed/cache');
+  const cacheDir = path.resolve(here, '../../data/cache');
+  let names: string[] = [];
+  try {
+    names = (await fs.readdir(seedDir)).filter((n) => n.startsWith('bars-full_'));
+  } catch {
+    return; // no seed shipped — nothing to do
+  }
+  await fs.mkdir(cacheDir, { recursive: true });
+
+  interface Entry {
+    key: string; storedAt: number; ttlSeconds: number;
+    value: { bars: Array<{ date: string }> } & Record<string, unknown>;
+  }
+
+  for (const name of names) {
+    const seed = JSON.parse(await fs.readFile(path.join(seedDir, name), 'utf8')) as Entry;
+    const target = path.join(cacheDir, name);
+    let out = seed;
+    try {
+      const cur = JSON.parse(await fs.readFile(target, 'utf8')) as Entry;
+      const merged = new Map(seed.value.bars.map((b) => [b.date, b]));
+      for (const b of cur.value.bars) merged.set(b.date, b);
+      cur.value.bars = [...merged.values()].sort((a, b) => a.date.localeCompare(b.date));
+      out = cur;
+    } catch {
+      /* no cached copy — the seed itself becomes the starting cache, but aged
+         so the TTL machinery treats it as due for refresh, not fresh data. */
+      out = { ...seed, storedAt: 0 };
+    }
+    await fs.writeFile(target, JSON.stringify(out), 'utf8');
+    console.log(`  [seed] ${name.replace(/\.[a-f0-9]+\.json$/, '')} → ${out.value.bars.length} bars`);
+  }
+}
+
 /** Same envelope the Express layer adds, so the client cannot tell the difference. */
 function envelope(body: Record<string, unknown>): Record<string, unknown> {
   return { ...body, __synthetic: config.fixtures.enabled };
@@ -61,6 +108,7 @@ async function main(): Promise<void> {
   }
 
   await fs.mkdir(OUT, { recursive: true });
+  await mergeSeedIntoCache();
   console.log(`[snapshot] writing to ${OUT}`);
 
   // The Transparency panel fetches this for the real refresh cadence; without it

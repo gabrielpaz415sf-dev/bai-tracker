@@ -186,7 +186,21 @@ export async function getDailyBars(
         p.dailyBars(symbol, FULL_START, today()),
       );
       if ('error' in r) throw new Error(r.error);
-      return { bars: r.value, providerId: r.provider.id, label: r.provider.label,
+      /*
+       * MERGE with the cached series instead of replacing it.
+       *
+       * Providers do not all serve the same depth: EODHD's free tier returns
+       * only one year. When Tiingo is rate-limited and the chain falls through,
+       * a replace-write let a 1-year response overwrite a full-history series —
+       * the public deploy shipped with BAI cut from 442 bars to 251 and the
+       * outlook model refusing to run. A union by date keeps the accumulated
+       * depth; fresh bars win on overlapping dates.
+       */
+      const prior = peek?.value.bars ?? [];
+      const merged = new Map(prior.map((b) => [b.date, b]));
+      for (const b of r.value) merged.set(b.date, b);
+      const bars = [...merged.values()].sort((a, b) => a.date.localeCompare(b.date));
+      return { bars, providerId: r.provider.id, label: r.provider.label,
         sourceKind: r.provider.sourceKind };
     });
 
