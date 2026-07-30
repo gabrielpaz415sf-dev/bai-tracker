@@ -193,6 +193,13 @@ function Overview({ data }: { data: AttributionData }) {
             {data.timeframe.startDate} → {data.timeframe.endDate} ·{' '}
             {data.timeframe.tradingDays} trading days
           </span>
+          {/* Daily bars exist only after a session closes, so this page always
+              ends at the last finished day — say so up front instead of letting
+              it read as stale next to the dashboard's live number. */}
+          <span className="dimmer" style={{ fontSize: 11.5 }}>
+            covers completed trading days through {data.timeframe.endDate} — if the market is
+            open right now, today-so-far is on the Dashboard
+          </span>
           <span className={`chip ${wb.reliable ? 'added' : 'stale'}`}>
             {wb.reliable ? 'NUMBERS ADD UP' : 'ROUGH GUIDE ONLY'}
           </span>

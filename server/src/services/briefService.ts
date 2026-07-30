@@ -36,10 +36,12 @@ const fmtPp = (v: number): string =>
 export async function buildDailyBrief(
   timeframe: TimeframeKey = '1D',
 ): Promise<DailyBrief> {
-  const [attr, holdingsTable, quote] = await Promise.all([
+  const { getLiveToday } = await import('./liveService');
+  const [attr, holdingsTable, quote, live] = await Promise.all([
     getAttribution(timeframe),
     getHoldingsTable(),
     getQuote('BAI'),
+    getLiveToday(),
   ]);
 
   const date = today();
@@ -136,7 +138,7 @@ export async function buildDailyBrief(
     );
   };
 
-  const movers = {
+  let movers = {
     up: a.topContributors.slice(0, 3).map((r) => ({
       line: moverLine(r),
       newsLines: newsFor(r.ticker),
@@ -146,6 +148,53 @@ export async function buildDailyBrief(
       newsLines: newsFor(r.ticker),
     })),
   };
+
+  /*
+   * TODAY-FIRST WHILE THE MARKET IS OPEN.
+   *
+   * Until the 4pm ET close there is no daily bar for today, so the attribution
+   * window necessarily ends at yesterday — but a page called "today's summary"
+   * that talks about yesterday while the dashboard shows today's move reads as
+   * broken, and that reading is fair. When the session is live, lead with the
+   * intraday picture (same quotes and cited news the dashboard uses) and demote
+   * the completed session to a clearly dated recap line.
+   */
+  let headline = ret === null
+    ? `BAI daily brief — ${date}`
+    : a.narrative.headline;
+
+  if (live.available && live.marketOpen && live.fund) {
+    const f = live.fund;
+    headline =
+      `BAI is ${f.changePct >= 0 ? 'up' : 'down'} ` +
+      `${Math.abs(f.changePct).toFixed(2)}% so far today (${live.session.etTime}).`;
+    const recap = ret === null
+      ? ''
+      : ` Yesterday's completed session (${a.timeframe.startDate} → ` +
+        `${a.timeframe.endDate}): ${ret >= 0 ? 'up' : 'down'} ` +
+        `${Math.abs(ret).toFixed(2)}%.`;
+    fundLine =
+      `Trading at ${f.last.toFixed(2)} (quotes ~15 min delayed; the session ` +
+      `runs until 4pm ET).` + recap;
+
+    const liveLine = (m: (typeof live.movers.up)[number]): string =>
+      `${m.name} (${m.ticker}) is ${m.changePct >= 0 ? 'up' : 'down'} ` +
+      `${Math.abs(m.changePct).toFixed(2)}% today, at ${m.weight.toFixed(2)}% of the fund.`;
+    const liveNews = (m: (typeof live.movers.up)[number]): string[] =>
+      m.news.map((n) => `${n.headline} — ${n.source}${n.url ? ` — ${n.url}` : ''}`);
+
+    if (live.movers.up.length + live.movers.down.length > 0) {
+      movers = {
+        up: live.movers.up.slice(0, 3).map((m) => ({ line: liveLine(m), newsLines: liveNews(m) })),
+        down: live.movers.down.slice(0, 3).map((m) => ({ line: liveLine(m), newsLines: liveNews(m) })),
+      };
+    }
+    caveats.unshift(
+      'The market is open: the movers above are today-so-far and will change ' +
+        'until the 4pm ET close. Manager activity and the market-vs-fund split ' +
+        'still describe the last completed session.',
+    );
+  }
 
   /* ------------------------------------------------------------ theme --- */
 
@@ -232,7 +281,7 @@ export async function buildDailyBrief(
   return {
     date,
     generatedAt: new Date().toISOString(),
-    headline: a.narrative.headline,
+    headline,
     fundLine,
     vsMarketLine,
     movers,
