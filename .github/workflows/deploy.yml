@@ -64,6 +64,17 @@ jobs:
           t=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 \
               -H "Authorization: Token $TIINGO_API_KEY" \
               "https://api.tiingo.com/api/test")
+          # The auth test can pass while the data endpoints are blocked for
+          # datacenter IPs — which is exactly the failure the first deploys hit,
+          # so probe the two endpoints the app actually uses.
+          td=$(curl -s -o /tmp/td.json -w "%{http_code}" --max-time 20 \
+              -H "Authorization: Token $TIINGO_API_KEY" \
+              "https://api.tiingo.com/tiingo/daily/BAI/prices?startDate=2024-10-01&format=json")
+          ti=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 \
+              -H "Authorization: Token $TIINGO_API_KEY" \
+              "https://api.tiingo.com/iex/?tickers=BAI")
+          tb=$(node -e "try{const a=require('/tmp/td.json');console.log(Array.isArray(a)?a.length+' bars':'not-array')}catch(e){console.log('unparseable')}")
+          echo "tiingo auth=$t daily=$td ($tb) iex=$ti" 
           e=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 \
               "https://eodhd.com/api/eod/BAI.US?fmt=json&api_token=$EODHD_API_KEY&from=2026-07-01")
           echo "tiingo=$t eodhd=$e (key lengths: ${#TIINGO_API_KEY}/${#EODHD_API_KEY})"
