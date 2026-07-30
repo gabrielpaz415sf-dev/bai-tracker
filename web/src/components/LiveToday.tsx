@@ -2,14 +2,9 @@ import { useEffect, useState } from 'react';
 import { fmt, get, signClass } from '../api';
 import { Panel, Stat } from './Common';
 
-interface MoverNews {
-  headline: string; url: string; source: string; publishedAt: string;
-}
-
 interface LiveMover {
   ticker: string; name: string; weight: number;
   changePct: number; contributionPct: number; subTheme: string;
-  news: MoverNews[];
 }
 
 interface LiveData {
@@ -27,7 +22,6 @@ interface LiveData {
     changePct: number | null; contributionPct: number | null; asOf: string | null;
   }>;
   unpriced: Array<{ ticker: string; weight: number }>;
-  newsSource: { label: string; available: boolean; note: string };
   notes: string[];
   available: boolean;
   reason: string | null;
@@ -52,15 +46,6 @@ interface LiveData {
 const REFRESH_OPEN_MS = 300_000;
 const REFRESH_CLOSED_MS = 900_000;
 
-/** "2h ago" reads faster than a timestamp when judging if a story precedes a move. */
-function ago(iso: string): string {
-  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (!Number.isFinite(mins) || mins < 0) return '';
-  if (mins < 60) return `${mins}m ago`;
-  if (mins < 48 * 60) return `${Math.round(mins / 60)}h ago`;
-  return `${Math.round(mins / 1440)}d ago`;
-}
-
 /**
  * Column labels. Without these the last two numbers on each row are just two
  * unexplained percentages sitting next to each other.
@@ -75,51 +60,31 @@ function MoverHead() {
   );
 }
 
-function MoverRow({ m, scale, newsOn }: { m: LiveMover; scale: number; newsOn: boolean }) {
+/*
+ * Just the bar. The per-stock headline lists that used to hang under each row
+ * moved into the AI-written summary card above the panel — one thing to read
+ * instead of a dozen links to triage.
+ */
+function MoverRow({ m, scale }: { m: LiveMover; scale: number }) {
   // Bar length tracks the stock's own price move — the number printed beside it.
-  // It used to track the contribution-to-fund figure, which meant the bar was
-  // sized by a quantity no longer shown anywhere.
   const pct = (Math.abs(m.changePct) / scale) * 50;
   const positive = m.changePct >= 0;
   return (
-    <div className="mover">
-      <div className="contrib-row" title={`${m.name} · ${m.subTheme} · ${m.weight.toFixed(2)}% weight`}>
-        <div className="contrib-name"><strong>{m.ticker}</strong></div>
-        <div className="contrib-track">
-          <div className="zero" />
-          <div
-            className="contrib-fill"
-            style={{
-              background: positive ? 'var(--up)' : 'var(--down)',
-              left: positive ? '50%' : `${50 - pct}%`,
-              width: `${Math.max(0.4, pct)}%`,
-            }}
-          />
-        </div>
-        <div className={`contrib-val ${signClass(m.changePct)}`}>{fmt.pct(m.changePct)}</div>
-        <div className="contrib-weight">{m.weight.toFixed(2)}%</div>
+    <div className="contrib-row" title={`${m.name} · ${m.subTheme} · ${m.weight.toFixed(2)}% weight`}>
+      <div className="contrib-name"><strong>{m.ticker}</strong></div>
+      <div className="contrib-track">
+        <div className="zero" />
+        <div
+          className="contrib-fill"
+          style={{
+            background: positive ? 'var(--up)' : 'var(--down)',
+            left: positive ? '50%' : `${50 - pct}%`,
+            width: `${Math.max(0.4, pct)}%`,
+          }}
+        />
       </div>
-
-      {/*
-        Coincident articles, cited with source and timestamp so the reader
-        judges the link themselves. No causal wording is generated anywhere:
-        an empty list renders "no story found", never a guess.
-      */}
-      {m.news.length > 0 ? (
-        <ul className="mover-news">
-          {m.news.map((n) => (
-            <li key={n.url}>
-              <a href={n.url} target="_blank" rel="noopener noreferrer">{n.headline}</a>
-              <span className="src">{n.source} · {ago(n.publishedAt)}</span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        // Only meaningful when a provider actually looked and found nothing.
-        // With no provider configured this would be a per-row echo of the
-        // banner below, so it is suppressed rather than repeated 12 times.
-        newsOn && <div className="mover-news none">no story found in this window</div>
-      )}
+      <div className={`contrib-val ${signClass(m.changePct)}`}>{fmt.pct(m.changePct)}</div>
+      <div className="contrib-weight">{m.weight.toFixed(2)}%</div>
     </div>
   );
 }
@@ -226,7 +191,7 @@ export function LiveTodayPanel() {
           {data.movers.up.length === 0 ? (
             <div className="dimmer" style={{ fontSize: 12 }}>nothing is up right now</div>
           ) : (
-            data.movers.up.map((m) => <MoverRow key={m.ticker} m={m} scale={scale} newsOn={data.newsSource.available} />)
+            data.movers.up.map((m) => <MoverRow key={m.ticker} m={m} scale={scale} />)
           )}
         </div>
         <div>
@@ -237,7 +202,7 @@ export function LiveTodayPanel() {
           {data.movers.down.length === 0 ? (
             <div className="dimmer" style={{ fontSize: 12 }}>nothing is down right now</div>
           ) : (
-            data.movers.down.map((m) => <MoverRow key={m.ticker} m={m} scale={scale} newsOn={data.newsSource.available} />)
+            data.movers.down.map((m) => <MoverRow key={m.ticker} m={m} scale={scale} />)
           )}
         </div>
       </div>

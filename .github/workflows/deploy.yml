@@ -116,6 +116,9 @@ jobs:
           TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
           EODHD_API_KEY: ${{ secrets.EODHD_API_KEY }}
           MARKETAUX_API_KEY: ${{ secrets.MARKETAUX_API_KEY }}
+          # Writes the daily plain-English summary. Optional: without it the
+          # snapshot writes an "unavailable" stub and the page hides the card.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: npm run snapshot
 
       # --base=./ makes the bundle work from a repo subpath

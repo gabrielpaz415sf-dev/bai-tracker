@@ -55,10 +55,24 @@ export function HoldingsTable() {
     return m;
   }, [data]);
 
+  // The issuer file ends in ~20 rows of 0.00% cash, money-market, and currency
+  // forwards (TWD/USD, KRW CASH, …). The section promises "every stock it
+  // owns" and those are not stocks — they are plumbing, and they buried the
+  // real tail of the portfolio. Include-only on Equity so any new non-stock
+  // class the issuer invents stays out; the excluded weight is footnoted.
+  const stocks = useMemo(
+    () => (data ? data.holdings.filter((h) => h.assetClass === 'Equity') : []),
+    [data],
+  );
+  const cashWeight = useMemo(
+    () => (data ? data.holdings.reduce((a, h) => a + h.weight, 0) : 0) - stocks.reduce((a, h) => a + h.weight, 0),
+    [data, stocks],
+  );
+
   const rows = useMemo(() => {
     if (!data) return [];
     const q = filter.trim().toLowerCase();
-    const filtered = data.holdings.filter(
+    const filtered = stocks.filter(
       (h) =>
         q === '' ||
         h.ticker.toLowerCase().includes(q) ||
@@ -87,7 +101,7 @@ export function HoldingsTable() {
         default: return dir * (a.weight - b.weight);
       }
     });
-  }, [data, sort, asc, filter, diffMap]);
+  }, [data, stocks, sort, asc, filter, diffMap]);
 
   if (err) return <Missing of={{ reason: 'provider-error', detail: err }} />;
   if (!data) return <div className="spinner">Loading holdings…</div>;
@@ -105,7 +119,7 @@ export function HoldingsTable() {
 
   return (
     <Panel
-      title={`Holdings — ${rows.length} of ${data.holdings.length}`}
+      title={`Holdings — ${rows.length} of ${stocks.length}`}
       right={
         <input
           className="field"
@@ -197,6 +211,11 @@ export function HoldingsTable() {
           </tbody>
         </table>
       </div>
+      {Math.abs(cashWeight) > 0.005 && (
+        <div className="dimmer" style={{ fontSize: 11, marginTop: 8 }}>
+          Not shown: cash and currency positions, a net {cashWeight.toFixed(2)}% of the fund.
+        </div>
+      )}
     </Panel>
   );
 }

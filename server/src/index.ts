@@ -219,6 +219,17 @@ app.get(
   }),
 );
 
+// The AI-written daily summary. Generation is cached (per ET date + session
+// bucket), so this is a cache read on every request but at most two model
+// calls per trading day.
+app.get(
+  '/api/summary',
+  wrap(async () => {
+    const { getDailySummary } = await import('./services/summaryService');
+    return { summary: await getDailySummary() };
+  }),
+);
+
 app.get(
   '/api/brief',
   wrap(async (req) => {

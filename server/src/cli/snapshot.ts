@@ -126,9 +126,16 @@ async function main(): Promise<void> {
    * carried a baked-in "live view unavailable". Quotes and the fund's own
    * series are the cheapest and most visible data; they go first.
    */
-  await write('live', { live: await getLiveToday() });
+  const live = await getLiveToday();
+  await write('live', { live });
   await write('overview', await getOverview());
   await write('holdings', await getHoldingsTable());
+
+  // The AI-written summary reuses the live payload just fetched — zero extra
+  // market-provider requests, one Anthropic call per publish. Without a key it
+  // writes an unavailable stub and the page simply omits the card.
+  const { getDailySummary } = await import('../services/summaryService');
+  await write('summary', { summary: await getDailySummary({ live }) });
 
 
   /*

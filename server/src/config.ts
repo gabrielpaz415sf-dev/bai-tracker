@@ -45,6 +45,9 @@ export const config = {
     alphavantage: env('ALPHAVANTAGE_API_KEY'),
     eodhd: env('EODHD_API_KEY'),
     marketaux: env('MARKETAUX_API_KEY'),
+    /** Writes the daily plain-English summary. Not a market-data provider:
+     *  its absence never triggers fixture mode, only hides the summary. */
+    anthropic: env('ANTHROPIC_API_KEY'),
   },
 
   /** Preference order; first configured provider wins, rest are fallbacks. */
@@ -109,6 +112,13 @@ export const config = {
      */
     news: 4 * 60 * 60,
     fundFacts: 24 * 60 * 60,
+    /**
+     * The AI-written daily summary. The cache key already carries the ET date
+     * and the market-open/closed bucket, so this TTL only guards against
+     * regenerating within the same bucket — 12h means at most two generations
+     * per trading day (the mid-session refresh and the after-close one).
+     */
+    summary: 12 * 60 * 60,
   },
 
   /** Beta estimation. */

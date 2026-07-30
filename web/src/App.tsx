@@ -5,6 +5,7 @@ import { Chart, type ChartSeries, type SeriesPoint } from './components/Chart';
 import { HoldingsTable } from './components/Holdings';
 import { LiveTodayPanel } from './components/LiveToday';
 import { ManagerChanges, type HoldingsDiff } from './components/ManagerChanges';
+import { DailySummaryCard } from './components/Summary';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 /**
@@ -69,9 +70,10 @@ export default function App() {
         </div>
       )}
 
-      {/* 1 ─ today: BAI's move, the stocks moving it, the news */}
+      {/* 1 ─ today: the AI-written why, then BAI's move and the stocks moving it */}
       <section>
         <h2>Today</h2>
+        <ErrorBoundary label="Daily summary"><DailySummaryCard /></ErrorBoundary>
         <ErrorBoundary label="Live today"><LiveTodayPanel /></ErrorBoundary>
       </section>
 
