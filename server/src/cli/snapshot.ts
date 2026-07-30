@@ -140,7 +140,10 @@ async function main(): Promise<void> {
   await write('outlook', { outlook: await getOutlook() });
   await write('holdings', await getHoldingsTable());
   const brief = await buildDailyBrief('1D');
+  // The client requests /brief?timeframe=1D, which the static resolver maps to
+  // brief-1D.json — the bare name alone left the summary tab 404ing on Pages.
   await write('brief', { brief, markdown: briefToMarkdown(brief) });
+  await write('brief-1D', { brief, markdown: briefToMarkdown(brief) });
 
   // The timeframe picker drives these, so every option needs a file.
   // Envelopes MUST match the Express routes byte-for-byte in shape: the first
