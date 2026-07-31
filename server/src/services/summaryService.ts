@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from '../config';
-import { cached } from '../cache/diskCache';
+import { cached, writeCache } from '../cache/diskCache';
 import { sessionState, lastCompletedTradingDate } from '../domain/session';
 import { getLiveToday, type LiveToday } from './liveService';
 
@@ -17,10 +17,12 @@ import { getLiveToday, type LiveToday } from './liveService';
  * headlines are coincident rather than proven causes, and no advice or
  * predictions ever.
  *
- * The summary regenerates at most twice per trading day (cache key = ET date
- * + market-open/closed bucket), which matches the site's two scheduled
- * publishes: a mid-session version and an after-close version. Each new day
- * gets a fresh key, so yesterday's text can never leak onto today's page.
+ * Freshness: every snapshot publish regenerates the text (`force`), so the
+ * words on the page always describe the numbers beside them — text describing
+ * an earlier refresh's numbers is the site's cardinal sin. The date+bucket
+ * cache only serves the local Express server between publishes, and a new day
+ * gets a fresh key either way, so yesterday's text can never leak onto
+ * today's page.
  */
 
 export interface DailySummary {
@@ -96,7 +98,10 @@ the iShares A.I. Innovation and Tech Active ETF. Your reader is smart but not a 
 Rules:
 - Two short paragraphs of plain prose, at most ~110 words total. No headings, \
 bullets, emojis, or markdown.
-- Paragraph 1: what BAI did and which stocks were the biggest reasons, by name.
+- Paragraph 1: what BAI did and WHY — name the stocks that drove the move and \
+their day moves, and when a supplied headline plainly explains one of them, \
+fold that reason in ("after news that ..."). The reader's one question is \
+"why is it up/down today"; answer it in the first sentence when the facts allow.
 - Paragraph 2: the most interesting remaining thing — an Asian holding's move, \
 a notable headline, or a pattern across the movers. If nothing else is \
 interesting, keep it to one sentence.
@@ -154,6 +159,8 @@ export async function getDailySummary(opts?: {
   live?: LiveToday;
   generate?: Generate;
   apiKey?: string | null;
+  /** Regenerate even when a cached copy exists — used by every snapshot publish. */
+  force?: boolean;
 }): Promise<DailySummary> {
   const session = sessionState();
   const bucket: DailySummary['session'] = session.open ? 'during-market' : 'after-close';
@@ -202,8 +209,14 @@ export async function getDailySummary(opts?: {
   // the shared on-disk cache.
   if (opts?.generate) return build();
 
+  const key = `summary_${forDate}_${bucket}`;
   try {
-    const { value } = await cached(`summary_${forDate}_${bucket}`, config.ttl.summary, build);
+    if (opts?.force) {
+      const fresh = await build();
+      await writeCache(key, fresh, config.ttl.summary);
+      return fresh;
+    }
+    const { value } = await cached(key, config.ttl.summary, build);
     return value;
   } catch (err) {
     // The page must never lose its numbers because the writer had a bad day.

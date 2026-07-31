@@ -132,10 +132,12 @@ async function main(): Promise<void> {
   await write('holdings', await getHoldingsTable());
 
   // The AI-written summary reuses the live payload just fetched — zero extra
-  // market-provider requests, one Anthropic call per publish. Without a key it
-  // writes an unavailable stub and the page simply omits the card.
+  // market-provider requests, one Anthropic call per publish. `force` because
+  // the published text must describe THIS run's numbers, never a cached
+  // earlier run's. Without a key it writes an unavailable stub and the page
+  // simply omits the card.
   const { getDailySummary } = await import('../services/summaryService');
-  await write('summary', { summary: await getDailySummary({ live }) });
+  await write('summary', { summary: await getDailySummary({ live, force: true }) });
 
 
   /*

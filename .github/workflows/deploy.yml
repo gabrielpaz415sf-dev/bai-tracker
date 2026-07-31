@@ -15,11 +15,21 @@ on:
   # Any change I push rebuilds and redeploys.
   push:
     branches: [main]
-  # Keeps the data current without a push. Times are UTC; 21:15 UTC is ~35 min
-  # after the 16:00 ET close, late enough for the closing bar to be published.
+  # Keeps the data current without a push. All times UTC, and GitHub cron
+  # routinely fires 15-60+ minutes late — treat these as "no earlier than".
+  #
+  # The morning goal is the earliest run that can show real opening prices:
+  # quotes are ~15 min delayed, so that is ~09:45 ET, never 09:30 sharp.
+  # Cron has no timezone, so two slots cover daylight saving in both
+  # directions: 13:45 UTC is 09:45 ET in summer (prime) but 08:45 ET in
+  # winter (pre-market warm-up); 14:45 UTC is the winter 09:45 ET prime and a
+  # summer 10:45 ET refresh. The summary regenerates on every publish, so
+  # each run's text matches its own numbers.
   schedule:
+    - cron: '45 13 * * 1-5'
+    - cron: '45 14 * * 1-5'
+    # ~35 min after the 16:00 ET close, late enough for the closing bar.
     - cron: '15 21 * * 1-5'
-    - cron: '30 14 * * 1-5' # ~10:30 ET, mid-session refresh
   # Lets you trigger a rebuild by hand from the Actions tab.
   workflow_dispatch:
 

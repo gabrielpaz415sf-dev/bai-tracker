@@ -33,15 +33,21 @@ export function DailySummaryCard() {
 
   if (!summary?.available || !summary.text) return null;
 
-  const when =
-    summary.session === 'during-market' ? 'written mid-session' : 'written after the close';
+  // The generation moment, in ET, so the reader can line the words up with
+  // the "as of" stamp on the numbers panel below.
+  const written = summary.generatedAt
+    ? new Date(summary.generatedAt).toLocaleString('en-US', {
+        timeZone: 'America/New_York',
+        month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+      }) + ' ET'
+    : summary.forDate;
 
   return (
     <Panel
       title="What happened, in plain English"
       right={
         <span className="dimmer" style={{ fontWeight: 400, textTransform: 'none' }}>
-          AI-written · {when} · {summary.forDate}
+          AI-written · updated {written}
         </span>
       }
     >
