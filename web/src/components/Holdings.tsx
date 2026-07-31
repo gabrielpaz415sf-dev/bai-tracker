@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fmt, get, signClass, type Provenance } from '../api';
-import { Missing, NoteBox, Panel } from './Common';
+import { Missing, Panel } from './Common';
 
 interface Holding {
   ticker: string; name: string; weight: number; sector: string;
@@ -136,13 +136,12 @@ export function HoldingsTable() {
       provenance={data.provenance}
     >
       {!hasDiff && (
-        <NoteBox>
-          <strong>Weight-change flagging is not active yet.</strong>{' '}
-          {(data.diff as { unavailable: string }).unavailable} Because the issuer only serves the
-          current file, manager activity is only observable as the difference between two
-          published dates — so the app archives each day's file and the column fills in from the
-          second run onward.
-        </NoteBox>
+        // One quiet line, not a paragraph: this state is transient (the diff
+        // needs two archived daily files) and the old NoteBox narrated
+        // manager-activity mechanics the page no longer discusses.
+        <div className="dimmer" style={{ fontSize: 11, marginBottom: 8 }}>
+          The Δ weight column fills in once two daily holdings files have been archived.
+        </div>
       )}
 
       {data.dayChangeNote && (
