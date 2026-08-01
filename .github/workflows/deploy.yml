@@ -18,7 +18,11 @@ on:
   # Keeps the data current without a push. All times UTC, and GitHub cron
   # routinely fires 15-60+ minutes late — treat these as "no earlier than".
   #
-  # The morning goal is the earliest run that can show real opening prices:
+  # The fund's foreign venues never constrain the morning time: Taiwan closes
+  # ~01:30 ET, Japan ~02:00 ET, Korea ~02:30 ET (the Israeli holding trades on
+  # Nasdaq), so every Asian close is hours old by any US-morning run and its
+  # EOD bars are published well before. The binding constraints are American:
+  # the morning goal is the earliest run that can show real opening prices —
   # quotes are ~15 min delayed, so that is ~09:45 ET, never 09:30 sharp.
   # Cron has no timezone, so two slots cover daylight saving in both
   # directions: 13:45 UTC is 09:45 ET in summer (prime) but 08:45 ET in
@@ -130,6 +134,14 @@ jobs:
           # snapshot writes an "unavailable" stub and the page hides the card.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: npm run snapshot
+
+      # Refuse to publish a build whose sections contradict each other (wrong
+      # trading day, mismatched holdings, stale summary text). Labeled
+      # degradation (live view down, summary off) only warns — stale-but-
+      # labeled ships, contradictory never does. On failure the site keeps
+      # its last good version.
+      - name: Check data consistency
+        run: npm run check:snapshot
 
       # --base=./ makes the bundle work from a repo subpath
       # (user.github.io/bai-tracker/) as well as from a custom domain.

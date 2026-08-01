@@ -19,6 +19,7 @@
     "refresh": "npm -w server run refresh",
     "brief": "npm -w server run brief",
     "snapshot": "npm -w server run snapshot",
+    "check:snapshot": "npm -w server run check:snapshot",
     "build:static": "npm run snapshot && npm -w web run build:static"
   },
   "devDependencies": {
